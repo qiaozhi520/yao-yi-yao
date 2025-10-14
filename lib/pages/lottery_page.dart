@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../model/number_item.dart';
 import '../utils/random_unique_numbers.dart';
 import '../widgets/number_items_list.dart';
+import 'lottery_simulation_page.dart';
 
 class LotteryPage extends StatefulWidget {
   const LotteryPage({super.key});
@@ -88,9 +89,15 @@ class _LotteryPageState extends State<LotteryPage> {
     });
   }
 
+  void _openSimulationPage() {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const LotterySimulatorPage()));
+  }
+
   void _copyToClipboard(List<NumberItem> items, String lotteryType) {
     String text;
-    
+
     if (lotteryType == '双色球') {
       // 双色球：前6个红球 + 1个蓝球
       final redBalls = items.sublist(0, 6).map((item) => item.value).join(' ');
@@ -98,14 +105,17 @@ class _LotteryPageState extends State<LotteryPage> {
       text = '$redBalls, $blueBall';
     } else if (lotteryType == '大乐透') {
       // 大乐透：前5个前区 + 2个后区
-      final frontNumbers = items.sublist(0, 5).map((item) => item.value).join(' ');
+      final frontNumbers = items
+          .sublist(0, 5)
+          .map((item) => item.value)
+          .join(' ');
       final backNumbers = items.sublist(5).map((item) => item.value).join(' ');
       text = '$frontNumbers, $backNumbers';
     } else {
       // 默认处理
       text = items.map((item) => item.value).join(' ');
     }
-    
+
     Clipboard.setData(ClipboardData(text: text));
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -124,6 +134,13 @@ class _LotteryPageState extends State<LotteryPage> {
           '彩票号码生成器',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
+        actions: [
+          IconButton(
+            onPressed: _openSimulationPage,
+            icon: const Icon(Icons.casino),
+            tooltip: '号码模拟器',
+          ),
+        ],
         centerTitle: true,
         elevation: 0,
         flexibleSpace: Container(
@@ -223,9 +240,7 @@ class _LotteryPageState extends State<LotteryPage> {
                     },
                     icon: const Icon(Icons.delete_outline, size: 18),
                     label: const Text('清空'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: Colors.red,
-                    ),
+                    style: TextButton.styleFrom(foregroundColor: Colors.red),
                   ),
                 ],
               ),
@@ -234,7 +249,8 @@ class _LotteryPageState extends State<LotteryPage> {
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: _history.length,
-                separatorBuilder: (context, index) => const SizedBox(height: 12),
+                separatorBuilder: (context, index) =>
+                    const SizedBox(height: 12),
                 itemBuilder: (context, index) {
                   final history = _history[index];
                   return _buildHistoryItem(history, index);
@@ -319,7 +335,10 @@ class _LotteryPageState extends State<LotteryPage> {
                 Container(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      colors: [gradient[0].withOpacity(0.2), gradient[1].withOpacity(0.2)],
+                      colors: [
+                        gradient[0].withOpacity(0.2),
+                        gradient[1].withOpacity(0.2),
+                      ],
                     ),
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -333,12 +352,7 @@ class _LotteryPageState extends State<LotteryPage> {
             ),
             const SizedBox(height: 20),
             if (items.isNotEmpty)
-              Center(
-                child: NumberItemsList(
-                  items: items,
-                  spacing: 10.0,
-                ),
-              ),
+              Center(child: NumberItemsList(items: items, spacing: 10.0)),
           ],
         ),
       ),
@@ -368,7 +382,10 @@ class _LotteryPageState extends State<LotteryPage> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [Colors.blue.shade400, Colors.blue.shade600],
@@ -385,14 +402,21 @@ class _LotteryPageState extends State<LotteryPage> {
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.grey[100],
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.access_time, size: 14, color: Colors.grey[600]),
+                      Icon(
+                        Icons.access_time,
+                        size: 14,
+                        color: Colors.grey[600],
+                      ),
                       const SizedBox(width: 4),
                       Text(
                         _formatTimestamp(history.timestamp),
@@ -426,10 +450,7 @@ class _LotteryPageState extends State<LotteryPage> {
               ],
             ),
             const SizedBox(height: 10),
-            NumberItemsList(
-              items: history.shuangSeQiu,
-              spacing: 8.0,
-            ),
+            NumberItemsList(items: history.shuangSeQiu, spacing: 8.0),
             const SizedBox(height: 16),
             Row(
               children: [
@@ -449,10 +470,7 @@ class _LotteryPageState extends State<LotteryPage> {
               ],
             ),
             const SizedBox(height: 10),
-            NumberItemsList(
-              items: history.daLeTou,
-              spacing: 8.0,
-            ),
+            NumberItemsList(items: history.daLeTou, spacing: 8.0),
           ],
         ),
       ),
