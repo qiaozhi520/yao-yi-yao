@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'pages/lottery_page.dart';
 
 void main() {
   runApp(const MainApp());
@@ -9,12 +10,13 @@ class MainApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
-      home: Scaffold(
-        body: Center(
-          child: Text('Hello World!'),
-        ),
+    return MaterialApp(
+      title: '彩票号码生成器',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+        useMaterial3: true,
       ),
+      home: const LotteryPage(),
     );
   }
 }
