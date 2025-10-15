@@ -23,7 +23,7 @@ class CircleValueBadge extends StatelessWidget {
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.3),
+            color: color.withValues(alpha: 0.3),
             blurRadius: 8,
             offset: const Offset(0, 4),
           ),
@@ -31,9 +31,9 @@ class CircleValueBadge extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
+            colors: [
             color,
-            color.withOpacity(0.8),
+            color.withValues(alpha: 0.8),
           ],
         ),
       ),
@@ -45,7 +45,7 @@ class CircleValueBadge extends StatelessWidget {
           fontSize: size * 0.35,
           shadows: [
             Shadow(
-              color: Colors.black.withOpacity(0.3),
+              color: Colors.black.withValues(alpha: 0.3),
               offset: const Offset(0, 1),
               blurRadius: 2,
             ),

@@ -15,7 +15,7 @@ class LotteryPage extends StatefulWidget {
 class _LotteryPageState extends State<LotteryPage> {
   List<NumberItem> _shuangSeQiuNumbers = [];
   List<NumberItem> _daLeTouNumbers = [];
-  List<LotteryHistory> _history = [];
+  final List<LotteryHistory> _history = [];
 
   @override
   void initState() {
@@ -187,7 +187,7 @@ class _LotteryPageState extends State<LotteryPage> {
                 borderRadius: BorderRadius.circular(12),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.green.withOpacity(0.3),
+                    color: Colors.green.withValues(alpha: 0.3),
                     blurRadius: 8,
                     offset: const Offset(0, 4),
                   ),
@@ -276,7 +276,7 @@ class _LotteryPageState extends State<LotteryPage> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.08),
+                    color: Colors.black.withValues(alpha: 0.08),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -336,8 +336,8 @@ class _LotteryPageState extends State<LotteryPage> {
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [
-                        gradient[0].withOpacity(0.2),
-                        gradient[1].withOpacity(0.2),
+                        gradient[0].withValues(alpha: 0.2),
+                        gradient[1].withValues(alpha: 0.2),
                       ],
                     ),
                     borderRadius: BorderRadius.circular(12),
@@ -367,7 +367,7 @@ class _LotteryPageState extends State<LotteryPage> {
         border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
