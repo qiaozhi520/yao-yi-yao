@@ -696,9 +696,17 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
         if (!_autoCancelled && started < groups) {
           await startNext();
         }
-      }).catchError((e) {
+      }).catchError((e) async {
         completed++;
-        if (mounted) setState(() => _statusMessage = '任务异常：$e');
+        // 记录一次失败的任务占位，保证统计数量达到目标
+        attemptsList.add(0);
+        if (mounted) {
+          setState(() => _statusMessage = '任务异常：$e');
+        }
+        // 出错也补充启动下一组，确保总启动数达到 groups
+        if (!_autoCancelled && started < groups) {
+          await startNext();
+        }
       });
     }
 
@@ -846,6 +854,46 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
   // 停止并清理 isolate
   Future<void> _stopIsolate() async {
     try {
+      // 优先处理“并发自动”场景的取消
+      final hasConcurrent = _concurrentIsolates.isNotEmpty ||
+          _concurrentReceivePorts.isNotEmpty ||
+          _concurrentControlSendPorts.isNotEmpty;
+      if (hasConcurrent) {
+        _autoCancelled = true;
+        // 发送优雅取消命令
+        for (final control in List<SendPort>.from(_concurrentControlSendPorts)) {
+          try {
+            control.send({'cmd': 'cancel'});
+          } catch (_) {}
+        }
+        // 给 isolate 一点时间响应取消
+        await Future.delayed(const Duration(milliseconds: 150));
+
+        // 强制终止兜底
+        for (final iso in List<Isolate>.from(_concurrentIsolates)) {
+          try {
+            iso.kill(priority: Isolate.immediate);
+          } catch (_) {}
+        }
+        for (final rp in List<ReceivePort>.from(_concurrentReceivePorts)) {
+          try {
+            rp.close();
+          } catch (_) {}
+        }
+
+        _concurrentIsolates.clear();
+        _concurrentReceivePorts.clear();
+        _concurrentControlSendPorts.clear();
+
+        if (mounted) {
+          setState(() {
+            _isRunning = false;
+            _statusMessage = '并发自动已取消';
+          });
+        }
+        return;
+      }
+
       // 如果有自动运行的 isolate，则优先中断它
       if (_activeIsolate != null) {
         _autoCancelled = true;
