@@ -59,9 +59,10 @@ flutter run -d chrome
 - `lib/widgets/`：各类 UI 组件，例如输入区、操作按钮行、状态显示、历史记录列表等。
 - `lib/utils/`：工具函数：
 	- `lottery_simulation_isolate.dart`：供 isolate 执行模拟的入口与逻辑
+	- `concurrent_simulator.dart`：并发模拟管理器，负责多 isolate 资源管理与进度跟踪
 	- `random_unique_numbers.dart`：随机不重复号码生成工具
 	- `min_attempts_store.dart`：内存存储最小命中次数记录
-	- `bet_cost.dart`：复式注数与费用计算（已添加）
+	- `bet_cost.dart`：复式注数与费用计算
 
 ## 设计注意点与限制
 

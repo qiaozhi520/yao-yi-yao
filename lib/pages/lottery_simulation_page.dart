@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:yao_yi_yao/utils/lottery_simulation_isolate.dart';
 import 'package:yao_yi_yao/utils/min_attempts_store.dart';
+import 'package:yao_yi_yao/utils/concurrent_simulator.dart';
 import 'package:yao_yi_yao/widgets/min_attempts_list.dart';
 import 'package:yao_yi_yao/widgets/lottery_input_section.dart';
 import 'package:yao_yi_yao/widgets/lottery_action_row.dart';
@@ -120,10 +121,8 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
   // 控制通道的 SendPort（向 isolate 发送控制命令）
   SendPort? _activeControlSendPort;
   bool _autoCancelled = false;
-  // 并发运行时的活动资源集合
-  final List<Isolate> _concurrentIsolates = [];
-  final List<ReceivePort> _concurrentReceivePorts = [];
-  final List<SendPort> _concurrentControlSendPorts = [];
+  // 并发模拟管理器
+  ConcurrentSimulator? _concurrentSimulator;
 
   /// 模拟最大尝试次数（避免无止境运行）
   static const int _maxAttempts = 100000000;
@@ -417,32 +416,35 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
     }
   }
 
-  /// 启动一个 isolate 并返回包含 isolate/rp/control 和 result future 的 map
-  Future<Map<String, dynamic>> _startIsolateForTarget({
+  /// 创建并发任务资源（用于并发模拟）
+  Future<TaskResources> _createTaskResources({
     required Set<int> targetPrimary,
     required Set<int> targetSecondary,
     required _LotteryRule rule,
     int chunkSize = 100000,
-    void Function(int attempts)? onProgress,
   }) async {
     final rp = ReceivePort();
-    final completer = Completer<Map<String, dynamic>>();
-
-    SendPort? controlSend;
+    final completer = Completer<SimulationResult>();
+    final controlCompleter = Completer<SendPort>();
 
     rp.listen((message) {
       if (message is SendPort) {
-        controlSend = message;
-        _concurrentControlSendPorts.add(message);
+        if (!controlCompleter.isCompleted) {
+          controlCompleter.complete(message);
+        }
         return;
       }
       if (message is Map) {
         final type = message['type'];
-        if (type == 'progress') {
+        if (type == 'result') {
+          final matched = message['matched'] as bool? ?? false;
           final attempts = message['attempts'] as int? ?? 0;
-          if (onProgress != null) onProgress(attempts);
-        } else if (type == 'result') {
-          completer.complete(message.cast<String, dynamic>());
+          final durationMs = message['durationMs'] as int? ?? 0;
+          completer.complete(SimulationResult(
+            matched: matched,
+            attempts: attempts,
+            durationMs: durationMs,
+          ));
         } else if (type == 'error') {
           completer.completeError(message['message'] ?? 'isolate error');
         }
@@ -470,16 +472,15 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
       onExit: rp.sendPort,
     );
 
-    _concurrentIsolates.add(iso);
-    _concurrentReceivePorts.add(rp);
+    // 等待 isolate 发送 control SendPort
+    final controlPort = await controlCompleter.future;
 
-    // 返回 map，包含 future 以便等待结果
-    return {
-      'iso': iso,
-      'rp': rp,
-      'control': controlSend,
-      'future': completer.future,
-    };
+    return TaskResources(
+      isolate: iso,
+      receivePort: rp,
+      controlPort: controlPort,
+      future: completer.future,
+    );
   }
 
   /// 自动模拟若干组（顺序运行），并在 UI 上显示进度与汇总
@@ -589,171 +590,121 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
     }
   }
 
-  /// 并发自动模拟：同时运行 up to [concurrency] 个 isolate 直到完成 [groups]
+  /// 并发自动模拟：同时运行 up to [concurrency] 个 isolate 直到完成 [groups] 组有效数据
   Future<void> _autoSimulateGroupsConcurrent(int groups, int concurrency) async {
     if (_isRunning) return;
-    _autoCancelled = false;
+    
     setState(() {
       _isRunning = true;
       _errorMessage = null;
       _statusMessage = null;
       _resultMessage = null;
       _attempts = 0;
-  // latest hit attempts tracking removed
     });
 
     final rule = _rule;
     final random = Random();
-    final attemptsList = <int>[];
-    int successes = 0;
-    int started = 0;
-    int completed = 0;
+    int successCount = 0;
+    String currentPrimaryText = '';
+    String currentSecondaryText = '';
 
-    // 清理并发列表
-    _concurrentIsolates.clear();
-    _concurrentReceivePorts.clear();
-    _concurrentControlSendPorts.clear();
-
-    Future<void> startNext() async {
-      if (_autoCancelled) return;
-      if (started >= groups) return;
-      started++;
-      final combo = _createRandomCombination(
-        _selectedType,
-        random,
-        primaryCount: _selectedPrimaryCount,
-        secondaryCount: _selectedSecondaryCount,
-      );
-      final targetP = combo.primary.toSet();
-      final targetS = combo.secondary.toSet();
-
-      // update UI for this started task
-      if (mounted) {
-        setState(() {
-          _primaryController.text = _formatNumbers(combo.primary);
-          _secondaryController.text = _formatNumbers(combo.secondary);
-          _statusMessage = '并发自动：已启动 $started / $groups，已完成 $completed';
-        });
-      }
-
-      final entry = await _startIsolateForTarget(
-        targetPrimary: targetP,
-        targetSecondary: targetS,
-        rule: rule,
-        onProgress: (_) {},
-      );
-
-      final future = entry['future'] as Future<Map<String, dynamic>>;
-      future.then((res) async {
-        if (_autoCancelled) return;
-        completed++;
-        final matched = res['matched'] as bool? ?? false;
-        final attempts = res['attempts'] as int? ?? 0;
-        final durationMs = res['durationMs'] as int? ?? 0;
-        attemptsList.add(attempts);
-        if (matched) {
-          successes++;
-          final primaryText = _sanitizeInput(_primaryController.text)
-              .replaceAll(',', ' ')
-              .trim()
-              .replaceAll(RegExp(r'\s+'), ' ');
-          final secondaryText = _sanitizeInput(_secondaryController.text)
-              .replaceAll(',', ' ')
-              .trim()
-              .replaceAll(RegExp(r'\s+'), ' ');
-          final key = '${_selectedType.name}|${rule.primaryLabel}:$primaryText|${rule.secondaryLabel}:$secondaryText';
-          await MinAttemptsStore.saveOrUpdate(
-            key: key,
-            type: _selectedType.label,
-            primary: primaryText,
-            secondary: secondaryText,
-            attempts: attempts,
-          );
-          if (mounted) setState(() => _listRefreshToken++);
-        }
-
-        if (mounted) {
-          setState(() {
-            _statusMessage = '并发自动：已完成 $completed / $groups，成功 $successes，最近一次用时 ${(durationMs / 1000).toStringAsFixed(2)} 秒';
-          });
-        }
-
-        // 清理该 isolate 的资源（rp/iso 已由 helper 添加到并发列表）
-        // Remove iso/rp/control where applicable
-        final iso = entry['iso'] as Isolate?;
-        final rp = entry['rp'] as ReceivePort?;
-        final control = entry['control'] as SendPort?;
-        if (iso != null) _concurrentIsolates.remove(iso);
-        if (rp != null) {
-          try {
-            rp.close();
-          } catch (_) {}
-          _concurrentReceivePorts.remove(rp);
-        }
-        if (control != null) _concurrentControlSendPorts.remove(control);
-
-        // start next if any remaining
-        if (!_autoCancelled && started < groups) {
-          await startNext();
-        }
-      }).catchError((e) async {
-        completed++;
-        // 记录一次失败的任务占位，保证统计数量达到目标
-        attemptsList.add(0);
-        if (mounted) {
-          setState(() => _statusMessage = '任务异常：$e');
-        }
-        // 出错也补充启动下一组，确保总启动数达到 groups
-        if (!_autoCancelled && started < groups) {
-          await startNext();
-        }
-      });
-    }
+    // 创建并发模拟器
+    _concurrentSimulator = ConcurrentSimulator(maxConcurrency: concurrency);
+    final simulator = _concurrentSimulator!;
 
     try {
-      // 启动初始并发数
-      final initial = min(concurrency, groups);
-      for (var j = 0; j < initial; j++) {
-        startNext();
-      }
+      final results = await simulator.runConcurrent(
+        totalGroups: groups,
+        taskStarter: () async {
+          // 生成随机号码组合
+          final combo = _createRandomCombination(
+            _selectedType,
+            random,
+            primaryCount: _selectedPrimaryCount,
+            secondaryCount: _selectedSecondaryCount,
+          );
+          final targetPrimary = combo.primary.toSet();
+          final targetSecondary = combo.secondary.toSet();
 
-      // 等待所有完成：轮询直到 started==groups && completed==groups 或取消
-      while (!(_autoCancelled || (started == groups && completed == groups))) {
-        await Future.delayed(const Duration(milliseconds: 200));
-      }
+          // 更新 UI 显示当前生成的号码
+          if (mounted) {
+            currentPrimaryText = _formatNumbers(combo.primary);
+            currentSecondaryText = _formatNumbers(combo.secondary);
+            setState(() {
+              _primaryController.text = currentPrimaryText;
+              _secondaryController.text = currentSecondaryText;
+            });
+          }
 
-      if (_autoCancelled) {
-        if (mounted) { setState(() => _statusMessage = '并发自动已取消：已完成 $completed / $groups'); }
+          // 启动 isolate 任务
+          return _createTaskResources(
+            targetPrimary: targetPrimary,
+            targetSecondary: targetSecondary,
+            rule: rule,
+          );
+        },
+        onProgress: (startedCount, completedCount) {
+          if (mounted) {
+            setState(() {
+              _statusMessage = '并发自动：已启动 $startedCount / $groups，已完成 $completedCount';
+            });
+          }
+        },
+        onTaskComplete: (result) async {
+          if (result.matched) {
+            successCount++;
+            
+            // 保存命中记录
+            final primaryText = _sanitizeInput(currentPrimaryText)
+                .replaceAll(',', ' ')
+                .trim()
+                .replaceAll(RegExp(r'\s+'), ' ');
+            final secondaryText = _sanitizeInput(currentSecondaryText)
+                .replaceAll(',', ' ')
+                .trim()
+                .replaceAll(RegExp(r'\s+'), ' ');
+            
+            final key = '${_selectedType.name}|${rule.primaryLabel}:$primaryText|${rule.secondaryLabel}:$secondaryText';
+            await MinAttemptsStore.saveOrUpdate(
+              key: key,
+              type: _selectedType.label,
+              primary: primaryText,
+              secondary: secondaryText,
+              attempts: result.attempts,
+            );
+            if (mounted) setState(() => _listRefreshToken++);
+          }
+
+          if (mounted) {
+            setState(() {
+              _statusMessage = '并发自动：成功 $successCount 次，'
+                  '最近一次用时 ${(result.durationMs / 1000).toStringAsFixed(2)} 秒';
+            });
+          }
+        },
+      );
+
+      // 汇总结果
+      if (simulator.isCancelled) {
+        if (mounted) {
+          setState(() => _statusMessage = '并发自动已取消：已完成 ${results.length} / $groups');
+        }
       } else {
-        final total = attemptsList.fold<int>(0, (p, e) => p + e);
-        final average = attemptsList.isNotEmpty ? (total / attemptsList.length) : 0;
-        if (mounted) { setState(() {
-          _resultMessage = '并发自动完成：共 ${attemptsList.length} 组，命中 $successes 次，平均尝试 ${average.toStringAsFixed(2)} 次。';
-        }); }
+        final totalAttempts = results.fold<int>(0, (sum, r) => sum + r.attempts);
+        final averageAttempts = results.isNotEmpty ? totalAttempts / results.length : 0;
+        if (mounted) {
+          setState(() {
+            _resultMessage = '并发自动完成：共 ${results.length} 组，'
+                '命中 $successCount 次，平均尝试 ${averageAttempts.toStringAsFixed(2)} 次。';
+          });
+        }
       }
-    } catch (e) {
-      if (mounted) { setState(() => _errorMessage = '并发自动异常：$e'); }
+    } catch (error) {
+      if (mounted) {
+        setState(() => _errorMessage = '并发自动异常：$error');
+      }
     } finally {
-      // 清理残留并发 isolates
-      for (final control in List<SendPort>.from(_concurrentControlSendPorts)) {
-        try {
-          control.send({'cmd': 'cancel'});
-        } catch (_) {}
-      }
-      for (final iso in List<Isolate>.from(_concurrentIsolates)) {
-        try {
-          iso.kill(priority: Isolate.immediate);
-        } catch (_) {}
-      }
-      for (final rp in List<ReceivePort>.from(_concurrentReceivePorts)) {
-        try {
-          rp.close();
-        } catch (_) {}
-      }
-      _concurrentIsolates.clear();
-      _concurrentReceivePorts.clear();
-      _concurrentControlSendPorts.clear();
-      _autoCancelled = false;
+      _concurrentSimulator = null;
       if (mounted) setState(() => _isRunning = false);
     }
   }
@@ -854,36 +805,10 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
   // 停止并清理 isolate
   Future<void> _stopIsolate() async {
     try {
-      // 优先处理“并发自动”场景的取消
-      final hasConcurrent = _concurrentIsolates.isNotEmpty ||
-          _concurrentReceivePorts.isNotEmpty ||
-          _concurrentControlSendPorts.isNotEmpty;
-      if (hasConcurrent) {
-        _autoCancelled = true;
-        // 发送优雅取消命令
-        for (final control in List<SendPort>.from(_concurrentControlSendPorts)) {
-          try {
-            control.send({'cmd': 'cancel'});
-          } catch (_) {}
-        }
-        // 给 isolate 一点时间响应取消
-        await Future.delayed(const Duration(milliseconds: 150));
-
-        // 强制终止兜底
-        for (final iso in List<Isolate>.from(_concurrentIsolates)) {
-          try {
-            iso.kill(priority: Isolate.immediate);
-          } catch (_) {}
-        }
-        for (final rp in List<ReceivePort>.from(_concurrentReceivePorts)) {
-          try {
-            rp.close();
-          } catch (_) {}
-        }
-
-        _concurrentIsolates.clear();
-        _concurrentReceivePorts.clear();
-        _concurrentControlSendPorts.clear();
+      // 优先处理"并发自动"场景的取消
+      if (_concurrentSimulator != null) {
+        _concurrentSimulator!.cancel();
+        _concurrentSimulator = null;
 
         if (mounted) {
           setState(() {
