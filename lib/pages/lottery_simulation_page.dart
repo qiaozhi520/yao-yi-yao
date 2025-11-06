@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:yao_yi_yao/utils/lottery_simulation_isolate.dart';
+import 'package:yao_yi_yao/utils/bet_cost.dart';
 import 'package:yao_yi_yao/utils/min_attempts_store.dart';
 import 'package:yao_yi_yao/utils/concurrent_simulator.dart';
 import 'package:yao_yi_yao/widgets/min_attempts_list.dart';
@@ -92,22 +93,29 @@ class LotterySimulatorPage extends StatefulWidget {
 class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
   /// 主区（红球/前区）输入框控制器
   final TextEditingController _primaryController = TextEditingController();
+
   /// 副区（蓝球/后区）输入框控制器
   final TextEditingController _secondaryController = TextEditingController();
 
   /// 当前选择的玩法
   LotteryType _selectedType = LotteryType.shuangSeQiu;
+
   /// 复式玩法：用户选择的主区/副区个数（用于输入、随机填充与自动模式目标生成）
   late int _selectedPrimaryCount;
   late int _selectedSecondaryCount;
+
   /// 是否正在运行模拟
   bool _isRunning = false;
+
   /// 错误消息（输入或运行时）
   String? _errorMessage;
+
   /// 状态消息（进度反馈）
   String? _statusMessage;
+
   /// 结果消息（完成后提示）
   String? _resultMessage;
+
   /// 已尝试次数统计
   int _attempts = 0;
   // _latestHitAttempts removed (no longer used)
@@ -194,7 +202,7 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
       _statusMessage = null;
       _resultMessage = null;
       _attempts = 0;
-  // latest hit attempts tracking removed
+      // latest hit attempts tracking removed
     });
 
     try {
@@ -255,15 +263,14 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
               // 命中且持久化
               if (matched) {
                 final rule = _rule;
-                final primaryText = _sanitizeInput(_primaryController.text)
-                    .replaceAll(',', ' ')
-                    .trim()
-                    .replaceAll(RegExp(r'\s+'), ' ');
-                final secondaryText = _sanitizeInput(_secondaryController.text)
-                    .replaceAll(',', ' ')
-                    .trim()
-                    .replaceAll(RegExp(r'\s+'), ' ');
-                final key = '${_selectedType.name}|${rule.primaryLabel}:$primaryText|${rule.secondaryLabel}:$secondaryText';
+                final primaryText = _sanitizeInput(
+                  _primaryController.text,
+                ).replaceAll(',', ' ').trim().replaceAll(RegExp(r'\s+'), ' ');
+                final secondaryText = _sanitizeInput(
+                  _secondaryController.text,
+                ).replaceAll(',', ' ').trim().replaceAll(RegExp(r'\s+'), ' ');
+                final key =
+                    '${_selectedType.name}|${rule.primaryLabel}:$primaryText|${rule.secondaryLabel}:$secondaryText';
                 await MinAttemptsStore.saveOrUpdate(
                   key: key,
                   type: _selectedType.label,
@@ -397,8 +404,8 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
       onExit: rp.sendPort,
     );
 
-  // 保存正在运行的 isolate
-  _activeIsolate = iso;
+    // 保存正在运行的 isolate
+    _activeIsolate = iso;
 
     try {
       final result = await completer.future;
@@ -440,11 +447,13 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
           final matched = message['matched'] as bool? ?? false;
           final attempts = message['attempts'] as int? ?? 0;
           final durationMs = message['durationMs'] as int? ?? 0;
-          completer.complete(SimulationResult(
-            matched: matched,
-            attempts: attempts,
-            durationMs: durationMs,
-          ));
+          completer.complete(
+            SimulationResult(
+              matched: matched,
+              attempts: attempts,
+              durationMs: durationMs,
+            ),
+          );
         } else if (type == 'error') {
           completer.completeError(message['message'] ?? 'isolate error');
         }
@@ -493,7 +502,7 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
       _statusMessage = null;
       _resultMessage = null;
       _attempts = 0;
-  // latest hit attempts tracking removed
+      // latest hit attempts tracking removed
     });
 
     final rule = _rule;
@@ -505,7 +514,8 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
     try {
       for (i = 1; i <= groups; i++) {
         if (!mounted) break;
-        if (!_isRunning) break; // allow cancellation by setting _isRunning=false
+        if (!_isRunning)
+          break; // allow cancellation by setting _isRunning=false
 
         // 生成一组随机目标作为本次被模拟的号码
         final combo = _createRandomCombination(
@@ -546,15 +556,14 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
         if (matched) {
           successes++;
           // 保存最小尝试记录（按当前随机组合）
-          final primaryText = _sanitizeInput(_primaryController.text)
-              .replaceAll(',', ' ')
-              .trim()
-              .replaceAll(RegExp(r'\s+'), ' ');
-          final secondaryText = _sanitizeInput(_secondaryController.text)
-              .replaceAll(',', ' ')
-              .trim()
-              .replaceAll(RegExp(r'\s+'), ' ');
-          final key = '${_selectedType.name}|${rule.primaryLabel}:$primaryText|${rule.secondaryLabel}:$secondaryText';
+          final primaryText = _sanitizeInput(
+            _primaryController.text,
+          ).replaceAll(',', ' ').trim().replaceAll(RegExp(r'\s+'), ' ');
+          final secondaryText = _sanitizeInput(
+            _secondaryController.text,
+          ).replaceAll(',', ' ').trim().replaceAll(RegExp(r'\s+'), ' ');
+          final key =
+              '${_selectedType.name}|${rule.primaryLabel}:$primaryText|${rule.secondaryLabel}:$secondaryText';
           await MinAttemptsStore.saveOrUpdate(
             key: key,
             type: _selectedType.label,
@@ -567,7 +576,8 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
 
         if (mounted) {
           setState(() {
-            _statusMessage = '已完成 $i / $groups 组（成功 $successes），最近一次尝试：$attempts 次，用时 ${(durationMs / 1000).toStringAsFixed(2)} 秒。';
+            _statusMessage =
+                '已完成 $i / $groups 组（成功 $successes），最近一次尝试：$attempts 次，用时 ${(durationMs / 1000).toStringAsFixed(2)} 秒。';
           });
         }
         // allow UI breathing room
@@ -576,10 +586,13 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
 
       // 汇总
       final total = attemptsList.fold<int>(0, (p, e) => p + e);
-      final average = attemptsList.isNotEmpty ? (total / attemptsList.length) : 0;
+      final average = attemptsList.isNotEmpty
+          ? (total / attemptsList.length)
+          : 0;
       if (mounted) {
         setState(() {
-          _resultMessage = '自动模拟完成：共 ${attemptsList.length} 组，命中 $successes 次，平均尝试 ${average.toStringAsFixed(2)} 次。';
+          _resultMessage =
+              '自动模拟完成：共 ${attemptsList.length} 组，命中 $successes 次，平均尝试 ${average.toStringAsFixed(2)} 次。';
         });
       }
     } catch (e) {
@@ -591,9 +604,12 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
   }
 
   /// 并发自动模拟：同时运行 up to [concurrency] 个 isolate 直到完成 [groups] 组有效数据
-  Future<void> _autoSimulateGroupsConcurrent(int groups, int concurrency) async {
+  Future<void> _autoSimulateGroupsConcurrent(
+    int groups,
+    int concurrency,
+  ) async {
     if (_isRunning) return;
-    
+
     setState(() {
       _isRunning = true;
       _errorMessage = null;
@@ -646,25 +662,25 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
         onProgress: (startedCount, completedCount) {
           if (mounted) {
             setState(() {
-              _statusMessage = '并发自动：已启动 $startedCount / $groups，已完成 $completedCount';
+              _statusMessage =
+                  '并发自动：已启动 $startedCount / $groups，已完成 $completedCount';
             });
           }
         },
         onTaskComplete: (result) async {
           if (result.matched) {
             successCount++;
-            
+
             // 保存命中记录
-            final primaryText = _sanitizeInput(currentPrimaryText)
-                .replaceAll(',', ' ')
-                .trim()
-                .replaceAll(RegExp(r'\s+'), ' ');
-            final secondaryText = _sanitizeInput(currentSecondaryText)
-                .replaceAll(',', ' ')
-                .trim()
-                .replaceAll(RegExp(r'\s+'), ' ');
-            
-            final key = '${_selectedType.name}|${rule.primaryLabel}:$primaryText|${rule.secondaryLabel}:$secondaryText';
+            final primaryText = _sanitizeInput(
+              currentPrimaryText,
+            ).replaceAll(',', ' ').trim().replaceAll(RegExp(r'\s+'), ' ');
+            final secondaryText = _sanitizeInput(
+              currentSecondaryText,
+            ).replaceAll(',', ' ').trim().replaceAll(RegExp(r'\s+'), ' ');
+
+            final key =
+                '${_selectedType.name}|${rule.primaryLabel}:$primaryText|${rule.secondaryLabel}:$secondaryText';
             await MinAttemptsStore.saveOrUpdate(
               key: key,
               type: _selectedType.label,
@@ -677,7 +693,8 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
 
           if (mounted) {
             setState(() {
-              _statusMessage = '并发自动：成功 $successCount 次，'
+              _statusMessage =
+                  '并发自动：成功 $successCount 次，'
                   '最近一次用时 ${(result.durationMs / 1000).toStringAsFixed(2)} 秒';
             });
           }
@@ -687,14 +704,22 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
       // 汇总结果
       if (simulator.isCancelled) {
         if (mounted) {
-          setState(() => _statusMessage = '并发自动已取消：已完成 ${results.length} / $groups');
+          setState(
+            () => _statusMessage = '并发自动已取消：已完成 ${results.length} / $groups',
+          );
         }
       } else {
-        final totalAttempts = results.fold<int>(0, (sum, r) => sum + r.attempts);
-        final averageAttempts = results.isNotEmpty ? totalAttempts / results.length : 0;
+        final totalAttempts = results.fold<int>(
+          0,
+          (sum, r) => sum + r.attempts,
+        );
+        final averageAttempts = results.isNotEmpty
+            ? totalAttempts / results.length
+            : 0;
         if (mounted) {
           setState(() {
-            _resultMessage = '并发自动完成：共 ${results.length} 组，'
+            _resultMessage =
+                '并发自动完成：共 ${results.length} 组，'
                 '命中 $successCount 次，平均尝试 ${averageAttempts.toStringAsFixed(2)} 次。';
           });
         }
@@ -722,24 +747,23 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
   /// 生成一组随机示例号码（用于“随机填充”和默认样例）
   _LotteryCombination _createRandomCombination(
     LotteryType type,
-    Random random,
-    {int? primaryCount, int? secondaryCount}
-  ) {
+    Random random, {
+    int? primaryCount,
+    int? secondaryCount,
+  }) {
     final rule = _kRules[type]!;
     final primary = _generateUniqueNumbers(
       random: random,
       count: primaryCount ?? rule.primaryCount,
       min: rule.primaryMin,
       max: rule.primaryMax,
-    ).toList()
-      ..sort();
+    ).toList()..sort();
     final secondary = _generateUniqueNumbers(
       random: random,
       count: secondaryCount ?? rule.secondaryCount,
       min: rule.secondaryMin,
       max: rule.secondaryMax,
-    ).toList()
-      ..sort();
+    ).toList()..sort();
     return _LotteryCombination(primary: primary, secondary: secondary);
   }
 
@@ -775,7 +799,8 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
       if (value < min || value > max) {
         throw RangeError('$label数字$value不在范围$min-$max内');
       }
-      if (!seen.add(value)) { // add 返回 false 表示已存在
+      if (!seen.add(value)) {
+        // add 返回 false 表示已存在
         throw FormatException('$label不能有重复数字');
       }
       numbers.add(value);
@@ -895,13 +920,27 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
     return List<int>.generate(max - min + 1, (i) => min + i);
   }
 
+  String _currentBetCostText() {
+    // 计算当前所选复式的注数与总费用（单注 2 元）
+    final BetCost cost = _selectedType == LotteryType.shuangSeQiu
+        ? calculateShuangSeQiuCost(
+            redCount: _selectedPrimaryCount,
+            blueCount: _selectedSecondaryCount,
+          )
+        : calculateDaLeTouCost(
+            frontCount: _selectedPrimaryCount,
+            backCount: _selectedSecondaryCount,
+          );
+    return '注数: ${cost.bets} 注，费用: ${cost.totalYuan} 元（每注 2 元）';
+  }
+
   @override
   Widget build(BuildContext context) {
     final inputFormatter = <TextInputFormatter>{
       FilteringTextInputFormatter.allow(RegExp(r'[0-9,，\s]')),
     };
 
-  // (已移除) 原用于构建存储 key 与标准化输入的辅助函数
+    // (已移除) 原用于构建存储 key 与标准化输入的辅助函数
 
     return Scaffold(
       appBar: AppBar(title: const Text('号码模拟器')),
@@ -935,10 +974,10 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
                       border: const OutlineInputBorder(),
                     ),
                     items: _countOptions(primary: true)
-                        .map((v) => DropdownMenuItem(
-                              value: v,
-                              child: Text('$v 个'),
-                            ))
+                        .map(
+                          (v) =>
+                              DropdownMenuItem(value: v, child: Text('$v 个')),
+                        )
                         .toList(),
                     onChanged: _isRunning
                         ? null
@@ -960,10 +999,10 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
                       border: const OutlineInputBorder(),
                     ),
                     items: _countOptions(primary: false)
-                        .map((v) => DropdownMenuItem(
-                              value: v,
-                              child: Text('$v 个'),
-                            ))
+                        .map(
+                          (v) =>
+                              DropdownMenuItem(value: v, child: Text('$v 个')),
+                        )
                         .toList(),
                     onChanged: _isRunning
                         ? null
@@ -977,6 +1016,15 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 8),
+            // 显示当前所选复式的注数与总费用（每注 2 元）
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4.0),
+              child: Text(
+                _currentBetCostText(),
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
             ),
             const SizedBox(height: 16),
             LotteryInputSection(
