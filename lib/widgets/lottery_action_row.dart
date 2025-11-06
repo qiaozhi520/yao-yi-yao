@@ -30,14 +30,27 @@ class LotteryActionRow extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 8),
-        OutlinedButton(
-          onPressed: isRunning ? null : onAuto100,
-          child: const Text('自动100组'),
+        // Allow the middle buttons to shrink if space is limited to avoid overflow.
+        Flexible(
+          fit: FlexFit.loose,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: OutlinedButton(
+              onPressed: isRunning ? null : onAuto100,
+              child: const Text('自动100组'),
+            ),
+          ),
         ),
         const SizedBox(width: 4),
-        OutlinedButton(
-          onPressed: isRunning ? null : onAutoConcurrent100,
-          child: const Text('并发自动100组(4)'),
+        Flexible(
+          fit: FlexFit.loose,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: OutlinedButton(
+              onPressed: isRunning ? null : onAutoConcurrent100,
+              child: const Text('并发自动100组(4)'),
+            ),
+          ),
         ),
         const SizedBox(width: 4),
         Expanded(

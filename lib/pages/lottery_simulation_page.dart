@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:yao_yi_yao/utils/lottery_simulation_isolate.dart';
+import 'package:flutter/foundation.dart';
 import 'package:yao_yi_yao/utils/bet_cost.dart';
 import 'package:yao_yi_yao/utils/min_attempts_store.dart';
 import 'package:yao_yi_yao/utils/concurrent_simulator.dart';
@@ -131,6 +132,8 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
   bool _autoCancelled = false;
   // 并发模拟管理器
   ConcurrentSimulator? _concurrentSimulator;
+  bool _webSimCancelled = false;
+  // Web (no isolate) simulation flag for cancellation is _webSimCancelled
 
   /// 模拟最大尝试次数（避免无止境运行）
   static const int _maxAttempts = 100000000;
@@ -229,94 +232,57 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
       final targetPrimary = primaryNumbers.toSet();
       final targetSecondary = secondaryNumbers.toSet();
 
-      // 启动 isolate 进行模拟
-      _receivePort = ReceivePort();
-      _receivePort!.listen((message) async {
-        // messages from isolate are expected to be Map progress/result/error
-
-        if (message is Map) {
-          final type = message['type'];
-          if (type == 'progress') {
-            final attempts = message['attempts'] as int? ?? 0;
-            if (mounted) {
-              setState(() {
-                _attempts = attempts;
-                _statusMessage = '已经模拟了$attempts次，还在苦苦寻找你的幸运号码...';
-              });
-            }
-          } else if (type == 'result') {
-            final matched = message['matched'] as bool? ?? false;
-            final attempts = message['attempts'] as int? ?? 0;
-            final durationMs = message['durationMs'] as int? ?? 0;
-            if (mounted) {
-              setState(() {
-                _attempts = attempts;
-                _statusMessage = matched
-                    ? '第$attempts次就命中了，你这锦鲤体质让人羡慕。'
-                    : '已经努力冲刺到$_maxAttempts次，服务器小马达都冒烟了。';
-                _resultMessage = matched
-                    ? '成功了！模拟器总共跑了$attempts次才撞上你的号码，用时${(durationMs / 1000).toStringAsFixed(2)}秒。你可以考虑去买彩票点杯奶茶庆祝一下。'
-                    : '抱歉，尝试了$_maxAttempts次还是没能遇见你的号码，模拟器已经拼搏到最后一口仙气。要不换组号码再战？';
-                // latest hit attempts tracking removed
-              });
-
-              // 命中且持久化
-              if (matched) {
-                final rule = _rule;
-                final primaryText = _sanitizeInput(
-                  _primaryController.text,
-                ).replaceAll(',', ' ').trim().replaceAll(RegExp(r'\s+'), ' ');
-                final secondaryText = _sanitizeInput(
-                  _secondaryController.text,
-                ).replaceAll(',', ' ').trim().replaceAll(RegExp(r'\s+'), ' ');
-                final key =
-                    '${_selectedType.name}|${rule.primaryLabel}:$primaryText|${rule.secondaryLabel}:$secondaryText';
-                await MinAttemptsStore.saveOrUpdate(
-                  key: key,
-                  type: _selectedType.label,
-                  primary: primaryText,
-                  secondary: secondaryText,
-                  attempts: attempts,
-                );
-                if (mounted) setState(() => _listRefreshToken++);
-              }
-
-              // 模拟完成，清理 isolate
-              await _stopIsolate();
-            }
-          } else if (type == 'error') {
-            final msg = message['message'] as String? ?? '未知错误';
-            if (mounted) {
-              setState(() {
-                _errorMessage = '模拟失败：$msg';
-              });
-            }
-            await _stopIsolate();
-          }
-        }
-      });
-
-      // 将参数打包传入 isolate
-      final params = LotteryIsolateParams(
-        sendPort: _receivePort!.sendPort,
-        primaryCount: rule.primaryCount,
-        primaryMin: rule.primaryMin,
-        primaryMax: rule.primaryMax,
-        secondaryCount: rule.secondaryCount,
-        secondaryMin: rule.secondaryMin,
-        secondaryMax: rule.secondaryMax,
+      // 使用统一的 _runIsolateOnce 来执行一次模拟（它内部已经处理了 web 回退）
+      final res = await _runIsolateOnce(
         targetPrimary: targetPrimary,
         targetSecondary: targetSecondary,
-        maxAttempts: _maxAttempts,
-        chunkSize: 100000,
+        rule: rule,
+        onProgress: (attempts) {
+          if (mounted) {
+            setState(() {
+              _attempts = attempts;
+              _statusMessage = '已经模拟了$attempts次，还在苦苦寻找你的幸运号码...';
+            });
+          }
+        },
       );
-      // 启动 isolate 执行模拟（入口函数在 utils 文件中）
-      _simulationIsolate = await Isolate.spawn(
-        lotterySimulationEntry,
-        params,
-        onError: _receivePort!.sendPort,
-        onExit: _receivePort!.sendPort,
-      );
+
+      if (!mounted) return;
+
+      final matched = res['matched'] as bool? ?? false;
+      final attempts = res['attempts'] as int? ?? 0;
+      final durationMs = res['durationMs'] as int? ?? 0;
+
+      setState(() {
+        _attempts = attempts;
+        _statusMessage = matched
+            ? '第$attempts次就命中了，你这锦鲤体质让人羡慕。'
+            : '已经努力冲刺到$_maxAttempts次，服务器小马达都冒烟了。';
+        _resultMessage = matched
+            ? '成功了！模拟器总共跑了$attempts次才撞上你的号码，用时${(durationMs / 1000).toStringAsFixed(2)}秒。你可以考虑去买彩票点杯奶茶庆祝一下。'
+            : '抱歉，尝试了$_maxAttempts次还是没能遇见你的号码，模拟器已经拼搏到最后一口仙气。要不换组号码再战？';
+      });
+
+      // 命中且持久化
+      if (matched) {
+        final rule = _rule;
+        final primaryText = _sanitizeInput(
+          _primaryController.text,
+        ).replaceAll(',', ' ').trim().replaceAll(RegExp(r'\s+'), ' ');
+        final secondaryText = _sanitizeInput(
+          _secondaryController.text,
+        ).replaceAll(',', ' ').trim().replaceAll(RegExp(r'\s+'), ' ');
+        final key =
+            '${_selectedType.name}|${rule.primaryLabel}:$primaryText|${rule.secondaryLabel}:$secondaryText';
+        await MinAttemptsStore.saveOrUpdate(
+          key: key,
+          type: _selectedType.label,
+          primary: primaryText,
+          secondary: secondaryText,
+          attempts: attempts,
+        );
+        if (mounted) setState(() => _listRefreshToken++);
+      }
     } on FormatException catch (error) {
       if (!mounted) {
         return;
@@ -355,6 +321,64 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
     int chunkSize = 100000,
     void Function(int attempts)? onProgress,
   }) async {
+    // Web 平台不支持 isolate，使用主线程异步执行作为回退实现
+    if (kIsWeb) {
+      final completer = Completer<Map<String, dynamic>>();
+      _webSimCancelled = false;
+      final random = Random();
+      int attempts = 0;
+      bool matched = false;
+      final stopwatch = Stopwatch()..start();
+
+      Future<void> runMainThread() async {
+        try {
+          while (attempts < _maxAttempts && !matched && !_webSimCancelled) {
+            final chunkLimit = (attempts + chunkSize).clamp(0, _maxAttempts);
+            while (attempts < chunkLimit && !matched && !_webSimCancelled) {
+              attempts++;
+              final genP = _generateUniqueNumbers(
+                random: random,
+                count: rule.primaryCount,
+                min: rule.primaryMin,
+                max: rule.primaryMax,
+              );
+              final genS = _generateUniqueNumbers(
+                random: random,
+                count: rule.secondaryCount,
+                min: rule.secondaryMin,
+                max: rule.secondaryMax,
+              );
+              if (genP.toSet().containsAll(targetPrimary) && genS.toSet().containsAll(targetSecondary)) {
+                matched = true;
+                break;
+              }
+            }
+            if (onProgress != null) onProgress(attempts);
+            // 让出UI线程一刻以保持响应
+            await Future.delayed(const Duration(milliseconds: 1));
+          }
+        } catch (e) {
+          completer.completeError(e.toString());
+          return;
+        } finally {
+          stopwatch.stop();
+          completer.complete({
+            'type': 'result',
+            'matched': matched,
+            'attempts': attempts,
+            'durationMs': stopwatch.elapsedMilliseconds,
+          });
+          _webSimCancelled = false;
+        }
+      }
+
+  // 在主线程上异步运行并等待结果（web 回退实现）
+  runMainThread();
+  final res = await completer.future;
+  return res;
+    }
+
+    // 非 web 平台使用 isolate 实现
     final rp = ReceivePort();
     final completer = Completer<Map<String, dynamic>>();
     Isolate? iso;
@@ -430,6 +454,63 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
     required _LotteryRule rule,
     int chunkSize = 100000,
   }) async {
+    // Web 平台没有 isolate，使用主线程异步逻辑作为回退
+    if (kIsWeb) {
+      final completer = Completer<SimulationResult>();
+      var cancelled = false;
+      final random = Random();
+
+      Future<void> runMain() async {
+        final stopwatch = Stopwatch()..start();
+        int attempts = 0;
+        bool matched = false;
+        try {
+          while (attempts < _maxAttempts && !matched && !cancelled) {
+            final chunkLimit = (attempts + chunkSize).clamp(0, _maxAttempts);
+            while (attempts < chunkLimit && !matched && !cancelled) {
+              attempts++;
+              final genP = _generateUniqueNumbers(
+                random: random,
+                count: rule.primaryCount,
+                min: rule.primaryMin,
+                max: rule.primaryMax,
+              );
+              final genS = _generateUniqueNumbers(
+                random: random,
+                count: rule.secondaryCount,
+                min: rule.secondaryMin,
+                max: rule.secondaryMax,
+              );
+              if (targetPrimary.containsAll(genP) && targetSecondary.containsAll(genS)) {
+                matched = true;
+                break;
+              }
+            }
+            // yield to event loop
+            await Future.delayed(const Duration(milliseconds: 1));
+          }
+        } catch (e) {
+          completer.completeError(e.toString());
+          return;
+        } finally {
+          stopwatch.stop();
+          completer.complete(SimulationResult(matched: matched, attempts: attempts, durationMs: stopwatch.elapsedMilliseconds));
+        }
+      }
+
+      runMain();
+
+      return TaskResources(
+        isolate: null,
+        receivePort: null,
+        controlPort: null,
+        future: completer.future,
+        onCancel: () {
+          cancelled = true;
+        },
+      );
+    }
+
     final rp = ReceivePort();
     final completer = Completer<SimulationResult>();
     final controlCompleter = Completer<SendPort>();
@@ -514,8 +595,9 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
     try {
       for (i = 1; i <= groups; i++) {
         if (!mounted) break;
-        if (!_isRunning)
+        if (!_isRunning) {
           break; // allow cancellation by setting _isRunning=false
+        }
 
         // 生成一组随机目标作为本次被模拟的号码
         final combo = _createRandomCombination(
@@ -830,6 +912,8 @@ class _LotterySimulatorPageState extends State<LotterySimulatorPage> {
   // 停止并清理 isolate
   Future<void> _stopIsolate() async {
     try {
+      // 如果在 web 回退路径上运行，标记取消以通知主线程循环结束
+      _webSimCancelled = true;
       // 优先处理"并发自动"场景的取消
       if (_concurrentSimulator != null) {
         _concurrentSimulator!.cancel();

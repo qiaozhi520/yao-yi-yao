@@ -39,20 +39,23 @@ class TaskResources {
     required this.receivePort,
     required this.controlPort,
     required this.future,
+    this.onCancel,
   });
 
-  final Isolate isolate;
-  final ReceivePort receivePort;
-  final SendPort controlPort;
+  final Isolate? isolate;
+  final ReceivePort? receivePort;
+  final SendPort? controlPort;
   final Future<SimulationResult> future;
+  /// 可选的取消回调（在不支持 isolate 的平台上可用）
+  final void Function()? onCancel;
 
   /// 清理资源
   void cleanup() {
     try {
-      receivePort.close();
+      receivePort?.close();
     } catch (_) {}
     try {
-      isolate.kill(priority: Isolate.immediate);
+      isolate?.kill(priority: Isolate.immediate);
     } catch (_) {}
   }
 }
@@ -177,7 +180,13 @@ class ConcurrentSimulator {
   void cleanupAll() {
     for (final task in List<TaskResources>.from(_activeTasks)) {
       try {
-        task.controlPort.send({'cmd': 'cancel'});
+        if (task.controlPort != null) {
+          task.controlPort!.send({'cmd': 'cancel'});
+        } else if (task.onCancel != null) {
+          try {
+            task.onCancel!();
+          } catch (_) {}
+        }
       } catch (_) {}
       task.cleanup();
     }

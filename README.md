@@ -45,7 +45,11 @@ flutter run -d windows
 
 # 或运行到 Web
 flutter run -d chrome
+
+# 构建web
+flutter build web --output=./dist
 ```
+
 
 4. 在应用中：
 - 打开“号码模拟器”页面，选择玩法和主/副区个数。
